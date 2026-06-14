@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, field_validator
+
+from kar_scraper.config import normalize_allowed_domain
 
 
 class SearchIntent(BaseModel):
@@ -14,6 +16,7 @@ class SearchIntent(BaseModel):
     era: str | None = None
     max_results: int = Field(default=10, ge=1, le=50)
     search_intent: str
+    search_queries: list[str] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):
@@ -68,6 +71,25 @@ class CliOptions(BaseModel):
     dry_run: bool = False
     allowed_domains: list[str] = Field(default_factory=list)
 
+    @field_validator("allowed_domains", mode="before")
+    @classmethod
+    def normalize_allowed_domains(cls, value: object) -> list[str]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            values = [value]
+        elif isinstance(value, list):
+            values = value
+        else:
+            raise TypeError("allowed_domains must be a string or list")
+        return [normalize_allowed_domain(str(item)) for item in values if str(item).strip()]
+
+
+class WorkflowEvent(BaseModel):
+    stage: str
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
 
 class Manifest(BaseModel):
     request: str
@@ -80,4 +102,3 @@ def json_schema_for(model: type[BaseModel]) -> dict[str, Any]:
     schema = model.model_json_schema()
     schema.pop("$defs", None)
     return schema
-

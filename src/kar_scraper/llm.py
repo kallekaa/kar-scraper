@@ -60,7 +60,9 @@ class OpenAIPlanner:
             instructions=(
                 "Extract karaoke search intent from the user request. "
                 "Return only JSON matching the schema. Keep unknown fields null. "
-                "Set search_intent to a concise phrase useful for searching public .kar files."
+                "Set search_intent to a concise phrase useful for searching public .kar files. "
+                "Plan 3 to 6 search_queries for finding public direct .kar karaoke files; "
+                "prefer filetype:kar, quoted artist/song searches when known, and concise genre or era searches."
             ),
             input=f"User request: {request}\nMaximum results: {max_results}",
             text={
@@ -75,6 +77,7 @@ class OpenAIPlanner:
         try:
             parsed = _load_json_object(_response_text(response))
             parsed["max_results"] = min(max_results, int(parsed.get("max_results") or max_results))
+            parsed["search_queries"] = _clean_search_queries(parsed.get("search_queries"))
             return SearchIntent.model_validate(parsed)
         except (ValidationError, ValueError, json.JSONDecodeError):
             return fallback_intent(request, max_results)
@@ -183,4 +186,27 @@ class OpenAIPlanner:
 
 
 def fallback_intent(request: str, max_results: int) -> SearchIntent:
-    return SearchIntent(search_intent=request.strip(), max_results=max_results)
+    cleaned = request.strip()
+    return SearchIntent(
+        search_intent=cleaned,
+        max_results=max_results,
+        search_queries=[
+            f"{cleaned} filetype:kar",
+            f"{cleaned} karaoke .kar",
+            f"{cleaned} download .kar",
+        ],
+    )
+
+
+def _clean_search_queries(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    queries: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        query = " ".join(str(item).split())
+        key = query.lower()
+        if query and key not in seen:
+            seen.add(key)
+            queries.append(query)
+    return queries[:6]
